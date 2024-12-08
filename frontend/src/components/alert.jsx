@@ -4,7 +4,7 @@ import { XCircle, CheckCircle } from "lucide-react"
 const CardAlert = ({ type, message, onClose }) => {
   const isError = type === "error"
   const iconClass = isError ? "text-red-500" : "text-green-500"
-  const title = isError ? "Terjadi Kesalahan" : "Berhasil"
+  const title = isError ? "An Error Occurred" : "Success";
 
   return (
     <div className="bg-white p-8 rounded-xl shadow-2xl max-w-sm w-full relative text-center animate-fadeIn scale-100 transition-transform duration-500 hover:scale-105">
