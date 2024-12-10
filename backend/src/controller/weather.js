@@ -5,52 +5,61 @@ const prisma = new PrismaClient()
 const apiKey = process.env.WEATHER_API
 
 export class WeatherController {
+    static async fetchLocation(locationId) {
+        const location = await prisma.location.findUnique({
+            where: { id: locationId },
+            include: { weatherData: true }
+        })
+        if (!location) throw new Error("Location not found")
+        return location
+    }
+
+    static buildDateFilter(startDate, endDate) {
+        if (!startDate || !endDate) return {}
+        return {
+            recordedAt: {
+                gte: new Date(startDate),
+                lte: new Date(endDate),
+            },
+        }
+    }
+
+    static formatLocationString(location) {
+        return [location.name, location.region, location.country].filter(Boolean).join(", ")
+    }
+
+    static async fetchWeatherData(latitude, longitude) {
+        const params = { lat: latitude, lon: longitude, appid: apiKey, units: "metric" }
+        const [weatherResponse, forecastResponse] = await Promise.all([
+            axios.get("https://api.openweathermap.org/data/2.5/weather", { params }),
+            axios.get("https://api.openweathermap.org/data/2.5/forecast", { params }),
+        ])
+        return { weather: weatherResponse.data, forecast: forecastResponse.data }
+    }
+
     static async fetchAndSaveWeather(req, res) {
         try {
             const { locationId } = req.params
-            const location = await prisma.location.findUnique({
-                where: { id: locationId }
-            })
+            const location = await WeatherController.fetchLocation(locationId)
 
-            if (!location) {
-                return res.status(404).json({ msg: "Location not found" })
-            }
+            const { weather } = await WeatherController.fetchWeatherData(location.latitude, location.longitude)
 
-            const weather = await axios.get("https://api.openweathermap.org/data/2.5/weather", {
-                params: {
-                    lat: location.latitude,
-                    lon: location.longitude,
-                    name: location.name,
-                    appid: apiKey,
-                    units: 'metric'
-                }
-            })
-
-            const weatherData = weather.data
-
-            const saveWeather = await prisma.weatherData.create({
+            const savedWeather = await prisma.weatherData.create({
                 data: {
                     locationId: location.id,
-                    temperature: weatherData.main.temp,
-                    humidity: weatherData.main.humidity,
-                    windSpeed: weatherData.wind.speed,
-                    recordedAt: new Date()
-                }
+                    temperature: weather.main.temp,
+                    humidity: weather.main.humidity,
+                    windSpeed: weather.wind.speed,
+                    recordedAt: new Date(),
+                },
             })
 
             res.status(201).json({
-                data: {
-                    ...saveWeather,
-                    name: location.name
-                },
-                msg: "Weather data saved successfully"
+                data: { ...savedWeather, name: location.name },
+                msg: "Weather data saved successfully",
             })
         } catch (error) {
-            console.error(error)
-            res.status(500).json({
-                data: error.response ? error.response.data : error.message,
-                msg: "Internal server error"
-            })
+            res.status(500).json({ error: error.message, msg: "Internal server error" })
         }
     }
 
@@ -59,115 +68,60 @@ export class WeatherController {
             const { locationId } = req.params
             const { startDate, endDate } = req.query
 
-            const location = await prisma.location.findUnique({
-                where: { id: locationId }
-            })
+            const location = await WeatherController.fetchLocation(locationId)
 
-            if (!location) {
-                return res.status(400).json({ msg: "Location not found" })
-            }
-
-            const filterDate = {}
-            if (startDate && endDate) {
-                filterDate.recordedAt = {
-                    gte: new Date(startDate),
-                    lte: new Date(endDate)
-                }
-            }
+            const dateFilter = WeatherController.buildDateFilter(startDate, endDate)
 
             const weatherHistory = await prisma.weatherData.findMany({
-                where: {
-                    locationId: location.id,
-                    ...filterDate
-                },
-                orderBy: {
-                    recordedAt: 'desc'
-                }
+                where: { locationId: location.id, ...dateFilter },
+                orderBy: { recordedAt: "desc" },
             })
 
             res.status(200).json({
                 data: weatherHistory,
-                msg: "Weather history retrieved successfully"
+                msg: "Weather history retrieved successfully",
             })
         } catch (error) {
-            res.status(500).json({
-                data: error.message,
-                msg: "Internal server error"
-            })
+            res.status(500).json({ error: error.message, msg: "Internal server error" })
         }
     }
 
     static async getCurrentWeather(req, res) {
         try {
             const { locationId } = req.params
-            const location = await prisma.location.findUnique({
-                where: { id: locationId },
-            })
+            const location = await WeatherController.fetchLocation(locationId)
 
-            if (!location) {
-                return res.status(404).json({ msg: "Location not found" })
-            }
+            const { weather, forecast } = await WeatherController.fetchWeatherData(location.latitude, location.longitude)
 
-            const responseWeather = await axios.get('https://api.openweathermap.org/data/2.5/weather', {
-                params: {
-                    lat: location.latitude,
-                    lon: location.longitude,
-                    appid: apiKey,
-                    units: 'metric',
-                },
-            })
-
-            const responseForecast = await axios.get('https://api.openweathermap.org/data/2.5/forecast', {
-                params: {
-                    lat: location.latitude,
-                    lon: location.longitude,
-                    appid: apiKey,
-                    units: 'metric',
-                },
-            })
-
-            const weatherData = responseWeather.data
-
-            const rainFall = responseForecast.data.list
-                .filter((item, index) => index % 8 === 0)
-                .map((item) => (item.rain && item.rain['3h']) ? item.rain['3h'] : 0)
+            const rainFall = forecast.list
+                .filter((_, index) => index % 8 === 0)
+                .map((item) => (item.rain?.["3h"] || 0))
 
             await prisma.weatherData.create({
                 data: {
                     locationId: location.id,
-                    temperature: weatherData.main.temp,
-                    humidity: weatherData.main.humidity,
-                    windSpeed: weatherData.wind.speed,
-                    rainFall: rainFall,
+                    temperature: weather.main.temp,
+                    humidity: weather.main.humidity,
+                    windSpeed: weather.wind.speed,
+                    rainFall,
                     recordedAt: new Date(),
                 },
             })
 
-            const locationString = [
-                location.name,
-                location.region,
-                location.country
-            ].filter(Boolean).join(', ')
-
             res.status(200).json({
                 data: {
-                    location: locationString,
-                    temperature: weatherData.main.temp,
-                    feelsLike: weatherData.main.feels_like,
-                    humidity: weatherData.main.humidity,
-                    windSpeed: weatherData.wind.speed,
-                    description: weatherData.weather[0].description,
-                    rainFall: rainFall,
+                    location: WeatherController.formatLocationString(location),
+                    temperature: weather.main.temp,
+                    feelsLike: weather.main.feels_like,
+                    humidity: weather.main.humidity,
+                    windSpeed: weather.wind.speed,
+                    description: weather.weather[0].description,
+                    rainFall,
                 },
-                msg: "Current weather and rainfall prediction retrieved and saved successfully",
+                msg: "Current weather retrieved and saved successfully",
             })
-
-            
         } catch (error) {
-            res.status(500).json({
-                error: error.message,
-                msg: "Internal server error",
-            })
+            res.status(500).json({ error: error.message, msg: "Internal server error" })
         }
     }
 
@@ -176,32 +130,21 @@ export class WeatherController {
             const { locationId } = req.params
             const { beforeDate } = req.query
 
-            const location = await prisma.location.findUnique({
-                where: { id: locationId }
-            })
+            const location = await WeatherController.fetchLocation(locationId)
 
-            if (!location) {
-                return res.status(404).json({ msg: "Location not found" })
+            const deleteFilter = {
+                locationId: location.id,
+                ...(beforeDate && { recordedAt: { lt: new Date(beforeDate) } }),
             }
 
-            const deleteData = { locationId: locationId }
-            if (beforeDate) {
-                deleteData.recordedAt = { lt: new Date(beforeDate) }
-            }
-
-            const deleteResult = await prisma.weatherData.deleteMany({
-                where: deleteData
-            })
+            const deleteResult = await prisma.weatherData.deleteMany({ where: deleteFilter })
 
             res.status(200).json({
                 data: deleteResult,
-                msg: "Weather history deleted successfully"
+                msg: "Weather history deleted successfully",
             })
         } catch (error) {
-            res.status(500).json({
-                data: error.message,
-                msg: "Internal server error"
-            })
+            res.status(500).json({ error: error.message, msg: "Internal server error" })
         }
     }
 }

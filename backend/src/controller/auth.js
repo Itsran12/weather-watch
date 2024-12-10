@@ -5,46 +5,58 @@ import jwt from "jsonwebtoken"
 const prisma = new PrismaClient()
 
 export class AuthController {
+    static async findUserByEmail(email) {
+        return await prisma.user.findUnique({
+            where: { email }
+        })
+    }
+
+    static async findUserById(userId) {
+        return await prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                name: true,
+                email: true
+            }
+        })
+    }
+
+    static async generateToken(payload, secret, options) {
+        return jwt.sign(payload, secret, options)
+    }
+
     static async login(req, res) {
+        const { email, password } = req.body
+
         try {
-            const user = await prisma.user.findUnique({
-                where: {
-                    email: req.body.email
-                }
-            })
-    
+            const user = await AuthController.findUserByEmail(email)
             if (!user) {
                 return res.status(401).json({ msg: "User not found" })
             }
-    
-            const isMatch = await bcrypt.compare(req.body.password, user.password)
+
+            const isMatch = await bcrypt.compare(password, user.password)
             if (!isMatch) {
                 return res.status(401).json({ msg: "Email or Password invalid" })
             }
-    
-            const token = jwt.sign({
-                id: user.id,
-                name: user.name,
-                email: user.email
-            }, process.env.JWT_SECRET_KEY, {
-                expiresIn: "1h"
-            })
-    
+
+            const token = await AuthController.generateToken(
+                { id: user.id, name: user.name, email: user.email },
+                process.env.JWT_SECRET_KEY,
+                { expiresIn: "1h" }
+            )
+
             await prisma.user.update({
-                where: {
-                    email: user.email
-                },
-                data: {
-                    token: token
-                }
+                where: { email: user.email },
+                data: { token }
             })
-    
+
             res.status(200).json({
                 data: {
                     id: user.id,
                     name: user.name,
                     email: user.email,
-                    token: token
+                    token
                 },
                 msg: "User logged in successfully"
             })
@@ -57,23 +69,16 @@ export class AuthController {
     }
 
     static async me(req, res) {
-        try {
-            const token = req.headers.authorization?.split(" ")[1]
-            if (!token) {
-                return res.status(401).json({ msg: "Token not found" })
-            }
+        const authHeader = req.headers.authorization
+        const token = authHeader?.split(" ")[1]
 
+        if (!token) {
+            return res.status(401).json({ msg: "Token not found" })
+        }
+
+        try {
             const decoded = jwt.verify(token, process.env.JWT_SECRET_KEY)
-            const user = await prisma.user.findUnique({
-                where: {
-                    id: decoded.id
-                },
-                select: {
-                    id: true,
-                    name: true,
-                    email: true,
-                }
-            })
+            const user = await AuthController.findUserById(decoded.id)
 
             if (!user) {
                 return res.status(401).json({ msg: "User not found" })
@@ -92,16 +97,17 @@ export class AuthController {
     }
 
     static async logout(req, res) {
-        const token = req.headers.authorization?.split(" ")[1]
+        const authHeader = req.headers.authorization
+        const token = authHeader?.split(" ")[1]
+
         if (!token) {
             return res.status(401).json({ msg: "No token provided" })
         }
 
         try {
-            const decode = jwt.verify(token, process.env.JWT_SECRET_KEY)
-            const userId = decode.id
+            const decoded = jwt.verify(token, process.env.JWT_SECRET_KEY)
             await prisma.user.update({
-                where: { id: userId },
+                where: { id: decoded.id },
                 data: { token: null }
             })
             res.status(200).json({ msg: "Successfully logged out" })
@@ -110,6 +116,6 @@ export class AuthController {
                 data: error.message,
                 msg: "Invalid token"
             })
-        }  
+        }
     }
 }
