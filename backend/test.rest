@@ -1,0 +1,12 @@
+### Login
+POST http://localhost:4000/api/login
+Content-Type: application/json
+
+{
+    "email" : "example@gmail.com",
+    "password" : "example123"
+}
+
+### Weather 
+GET http://localhost:4000/api/weather/9c415141-e350-4cfc-85d7-0c86f2f52e3e/current
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjdjMDIyMzdkLWQ5MTAtNDIzZS1hNDllLTA3MGJhNGZjZWE3ZiIsIm5hbWUiOiJleGFtcGxlIiwiZW1haWwiOiJleGFtcGxlQGdtYWlsLmNvbSIsImlhdCI6MTczMzgzMDA2NCwiZXhwIjoxNzMzODMzNjY0fQ.D83QcZfDl-W-htldOdAz4fG2TFpjTuf00TUSuKHB_tU

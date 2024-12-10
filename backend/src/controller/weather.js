@@ -143,9 +143,15 @@ export class WeatherController {
                 },
             })
 
+            const locationString = [
+                location.name,
+                location.region,
+                location.country
+            ].filter(Boolean).join(', ')
+
             res.status(200).json({
                 data: {
-                    location: `${location.name}, ${location.region}, ${location.country}`,
+                    location: locationString,
                     temperature: weatherData.main.temp,
                     feelsLike: weatherData.main.feels_like,
                     humidity: weatherData.main.humidity,
@@ -155,6 +161,8 @@ export class WeatherController {
                 },
                 msg: "Current weather and rainfall prediction retrieved and saved successfully",
             })
+
+            
         } catch (error) {
             res.status(500).json({
                 error: error.message,
