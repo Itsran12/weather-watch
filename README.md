@@ -56,7 +56,7 @@ Ensure you have the following installed:
    # API_KEY="your_open_weather_api_key"
    
    # Run the backend
-   npm run dev
+   npm run start
    ```
 
 3. Set up the frontend:
